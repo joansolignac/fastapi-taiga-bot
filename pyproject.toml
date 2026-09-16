@@ -1,0 +1,22 @@
+[project]
+name = "fastapi-taiga-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Joan Solignac Lovera", email = "joanpsolignac@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi[standard]>=0.141.1",
+    "python-dotenv>=1.2.3",
+    "python-telegram-bot>=22.8",
+    "uvicorn>=0.53.0",
+]
+
+[project.scripts]
+fastapi-taiga-bot = "fastapi_taiga_bot:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
