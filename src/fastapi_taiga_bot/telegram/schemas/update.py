@@ -1,4 +1,5 @@
 from fastapi_taiga_bot.telegram.schemas.base import TelegramBaseModel
+from fastapi_taiga_bot.telegram.schemas.callback_query import TelegramCallbackQuery
 from fastapi_taiga_bot.telegram.schemas.message import TelegramMessage
 
 '''
@@ -33,7 +34,12 @@ from fastapi_taiga_bot.telegram.schemas.message import TelegramMessage
 class TelegramUpdate(TelegramBaseModel):
     update_id: int
     message: TelegramMessage | None = None
+    callback_query: TelegramCallbackQuery | None = None
 
     @property
     def is_command(self) -> bool:
         return bool(self.message and self.message.is_command)
+
+    @property
+    def is_callback(self) -> bool:
+        return self.callback_query is not None
