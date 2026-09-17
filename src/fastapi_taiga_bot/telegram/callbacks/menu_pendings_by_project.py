@@ -6,37 +6,47 @@ from fastapi_taiga_bot.telegram.callbacks.base import TelegramCallback
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
 from fastapi_taiga_bot.telegram.services.menu_content import MenuContentService, get_menu_content
-from fastapi_taiga_bot.taiga.models import TaigaSession
+from fastapi_taiga_bot.taiga.services.auth_service import (
+    NotLoggedInError,
+    TaigaAuthService,
+    get_taiga_auth_service,
+)
 
 
-class MenuPendingsCallback(TelegramCallback):
-    data = "menu:pendings"
+class MenuPendingsByProjectCallback(TelegramCallback):
+    data = "menu:pendings:by_project"
 
     def __init__(
         self,
         client: TelegramClient,
         menu_content: MenuContentService,
+        auth_service: TaigaAuthService,
         session: AsyncSession,
     ):
         self._client = client
         self._menu_content = menu_content
+        self._auth_service = auth_service
         self._session = session
 
     async def handle(self, update: TelegramUpdate) -> None:
         message = update.callback_query.message
         chat_id = message.chat.id
 
-        is_logged_in = await self._session.get(TaigaSession, chat_id) is not None
-        menu = self._menu_content.build_pendings_menu() if is_logged_in else self._menu_content.build_root_menu(False)
+        try:
+            grouped = await self._auth_service.list_pending_user_stories_by_project(self._session, chat_id)
+            menu = self._menu_content.build_pendings_by_project_menu(grouped)
+        except NotLoggedInError:
+            menu = self._menu_content.build_root_menu(False)
 
         await self._client.edit_message_text(
             chat_id, message.message_id, menu["text"], menu["reply_markup"]
         )
 
 
-def get_menu_pendings_callback(
+def get_menu_pendings_by_project_callback(
     client: TelegramClient = Depends(get_telegram_client),
     menu_content: MenuContentService = Depends(get_menu_content),
+    auth_service: TaigaAuthService = Depends(get_taiga_auth_service),
     session: AsyncSession = Depends(get_session),
-) -> MenuPendingsCallback:
-    return MenuPendingsCallback(client, menu_content, session)
+) -> MenuPendingsByProjectCallback:
+    return MenuPendingsByProjectCallback(client, menu_content, auth_service, session)

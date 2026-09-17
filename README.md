@@ -1,67 +1,78 @@
 # fastapi-taiga-bot
 
-A Telegram bot, built on FastAPI, that lets each user log into their own Taiga account and check their projects and pending user stories directly from a chat menu.
+Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar sesión con su propia cuenta de Taiga (herramienta de gestión de proyectos) y consultar sus proyectos e historias de usuario pendientes directamente desde un menú de chat. Además, avisa automáticamente por Telegram cuando ocurren cambios relevantes en las tareas asignadas, a partir de los webhooks de Taiga.
 
-## Features
+## Funcionalidades
 
-- Telegram integration implemented from scratch on top of `httpx` (webhook-based, no bot framework).
-- Per-user Taiga login (`/login`) with credentials encrypted at rest in Postgres — no shared/technical Taiga account.
-- Inline-keyboard menu (`/start`), gated by login state:
-  - Not logged in → only a "🔐 Iniciar sesión" button.
-  - Logged in → 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.
-- Slash-command equivalents for every menu option (`/login`, `/logout`, `/projects`, `/pendings`).
-- Automatic access-token refresh against Taiga's API when it expires.
+- Integración de Telegram implementada desde cero sobre `httpx` (basada en webhooks, sin frameworks de bots de terceros).
+- Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida.
+- Menú con botones inline (`/start`), condicionado al estado de sesión:
+  - Sin sesión iniciada → solo el botón "🔐 Iniciar sesión".
+  - Con sesión iniciada → 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.
+  - "📌 Pendientes" abre un submenú con dos vistas: "📁 Por proyecto" (agrupadas por proyecto) y "⏰ Atrasadas" (con los días de atraso), cada historia con referencia, título, estado y link directo a Taiga.
+- Comandos de texto equivalentes a cada opción del menú (`/login`, `/logout`, `/projects`, `/pendings`).
+- Renovación automática del access token de Taiga cuando expira, sin pedirle credenciales de nuevo al usuario.
+- **Notificaciones en tiempo real vía webhook de Taiga** (`POST /taiga/webhook`, firmado con HMAC-SHA1):
+  - Aviso al crear una tarea y asignártela.
+  - Aviso cuando cambia el estado, la fecha de entrega, o se agrega un comentario.
+  - Aviso al eliminar una tarea en la que estabas asignado.
+  - Al **quitar** la asignación de una tarea, el bot no solo deja de avisar de eso: **borra el mensaje original** donde te había notificado esa asignación (mismo comportamiento si te reasignan a otra persona o si la tarea se elimina directamente).
+  - Los eventos repetidos (Taiga reintenta la entrega del webhook) se deduplican y se ignoran.
 
-## Requirements
+## Requisitos
 
 - Python >=3.14
-- [uv](https://docs.astral.sh/uv/) as package manager
-- Docker (for local Postgres via `docker compose`)
-- A tunnel (e.g. [ngrok](https://ngrok.com/)) to expose your local server with HTTPS for Telegram's webhook
+- [uv](https://docs.astral.sh/uv/) como gestor de paquetes
+- Docker (para levantar Postgres local vía `docker compose`)
+- Un túnel (ej. [ngrok](https://ngrok.com/)) para exponer el servidor local con HTTPS, necesario tanto para el webhook de Telegram como para el de Taiga
 
-## Setup
+## Puesta en marcha
 
-1. Install dependencies:
+1. Instalar las dependencias:
    ```bash
    uv sync
    ```
-2. Copy `.env` and fill in the required variables (see below).
-3. Start Postgres locally:
+2. Copiar `.env` y completar las variables necesarias (ver más abajo).
+3. Levantar Postgres local:
    ```bash
    docker compose up -d
    ```
-4. Apply database migrations:
+4. Aplicar las migraciones de la base de datos:
    ```bash
    uv run alembic upgrade head
    ```
-5. Run the server:
+5. Correr el servidor:
    ```bash
    uv run fastapi dev src/fastapi_taiga_bot/main.py
    ```
-6. Expose it with a tunnel and register the Telegram webhook (see `CLAUDE.md` for the exact `curl` command).
+6. Exponerlo con un túnel y registrar los webhooks:
+   - **Telegram**: ver `CLAUDE.md` para el comando `curl` exacto contra `setWebhook`.
+   - **Taiga**: desde el proyecto en Taiga → Admin → Webhooks, agregar uno apuntando a `https://<tu-túnel>/taiga/webhook`, con la clave secreta igual a `TAIGA_WEBHOOK_SECRET`.
 
-## Environment variables
+## Variables de entorno
 
-| Variable | Description |
+| Variable | Descripción |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | Token from [@BotFather](https://t.me/BotFather). |
-| `TELEGRAM_WEBHOOK_SECRET` | Random secret; validated against Telegram's `X-Telegram-Bot-Api-Secret-Token` header on every webhook call. |
-| `TAIGA_BASE_URL` | Base URL of your Taiga instance's REST API, e.g. `https://taiga.example.com/api/v1`. |
-| `DATABASE_URL` | Postgres connection string using the async driver, e.g. `postgresql+asyncpg://user:pass@localhost:5433/db`. |
-| `TAIGA_TOKEN_ENCRYPTION_KEY` | A Fernet key used to encrypt/decrypt stored Taiga access/refresh tokens. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `TELEGRAM_BOT_TOKEN` | Token obtenido de [@BotFather](https://t.me/BotFather). |
+| `TELEGRAM_WEBHOOK_SECRET` | Secreto aleatorio; se valida contra el header `X-Telegram-Bot-Api-Secret-Token` en cada llamada del webhook de Telegram. |
+| `TAIGA_BASE_URL` | URL base de la API REST de tu instancia de Taiga, ej. `https://taiga.example.com/api/v1`. |
+| `TAIGA_WEB_BASE_URL` | URL base del frontend web de Taiga (sin `/api/v1`), usada para armar los links directos a las historias de usuario, ej. `https://taiga.example.com`. |
+| `DATABASE_URL` | Cadena de conexión de Postgres con el driver async, ej. `postgresql+asyncpg://user:pass@localhost:5433/db`. |
+| `TAIGA_TOKEN_ENCRYPTION_KEY` | Clave Fernet para cifrar/descifrar los tokens de Taiga guardados. Se genera con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `TAIGA_WEBHOOK_SECRET` | Secreto configurado en Taiga (Admin → Webhooks); Taiga firma cada payload con HMAC-SHA1 usando esta clave, y el bot valida esa firma contra el header `X-Taiga-Webhook-Signature`. |
 
-## Bot commands
+## Comandos del bot
 
-| Command | Description |
+| Comando | Descripción |
 |---|---|
-| `/start` | Shows the main menu (login-gated). |
-| `/login <email> <password>` | Logs into Taiga; the message with the password is deleted immediately after processing. |
-| `/logout` | Clears the stored Taiga session. |
-| `/projects` | Lists the names of your Taiga projects. |
-| `/pendings` | Lists your open (non-closed) Taiga user stories. |
+| `/start` | Muestra el menú principal (según el estado de sesión). |
+| `/login <email> <contraseña>` | Inicia sesión en Taiga; el mensaje con la contraseña se borra apenas se procesa, haya salido bien o mal. |
+| `/logout` | Elimina la sesión de Taiga guardada. |
+| `/projects` | Lista los nombres de tus proyectos de Taiga. |
+| `/pendings` | Lista tus historias de usuario abiertas (no cerradas). |
 
-## Development
+## Desarrollo
 
-See [CLAUDE.md](CLAUDE.md) for the full architecture reference (module layout, dependency-injection conventions, database/migrations workflow, and local webhook testing).
+Ver [CLAUDE.md](CLAUDE.md) (en inglés) para la referencia completa de arquitectura: organización de módulos, convenciones de inyección de dependencias, flujo de migraciones/base de datos, el diseño del servicio de notificaciones vía webhook de Taiga, y cómo probar los webhooks en local.
 
-There are no automated tests, linter, or formatter configured yet.
+Todavía no hay tests automatizados, linter ni formatter configurados.

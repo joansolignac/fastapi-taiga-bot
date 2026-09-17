@@ -58,6 +58,8 @@ curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
 curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getWebhookInfo"
 ```
 
+Taiga's webhook needs the same tunnel. Register it from the Taiga project's admin panel (Project → Admin → Webhooks), pointing to `https://<tunnel-domain>/taiga/webhook` with the secret key set to `TAIGA_WEBHOOK_SECRET`. Unlike Telegram's plain secret-token comparison, Taiga signs the raw request body with HMAC-SHA1 and sends it in the `X-Taiga-Webhook-Signature` header — see `taiga/security.py`'s `verify_taiga_webhook_secret`.
+
 ## Architecture
 
 ### Configuration
@@ -74,12 +76,27 @@ Cross-cutting concerns (auth, shared clients) are wired as FastAPI dependencies 
 
 `db/engine.py` holds `get_engine()` (the connection pool, `@lru_cache`, created from `Settings.database_url`) and `get_session()` (an `AsyncSession` generator dependency, one per request). Migrations live in `alembic/`, configured (in `alembic/env.py`) to read the DB URL from `get_settings()` instead of `alembic.ini`, and to autogenerate against `SQLModel.metadata` (every table model must be imported there for autogenerate to see it).
 
-### `taiga/` module — Taiga API integration and per-user sessions
+### `taiga/` module — Taiga API integration, per-user sessions, and inbound webhooks
 
-- `client.py` — `TaigaClient`, an `httpx.AsyncClient`-based wrapper around Taiga's REST API (`login`, `refresh_token`, `me`, `list_projects`, `list_user_stories`), exposed via `get_taiga_client()` (`@lru_cache`).
-- `models.py` — `TaigaSession` (SQLModel table `taiga_session`): one row per Telegram `chat_id`, storing the Taiga access/refresh tokens **encrypted**, never in plaintext.
+- `client.py` — `TaigaClient`, an `httpx.AsyncClient`-based wrapper around Taiga's REST API (`login`, `refresh_token`, `me`, `list_projects`, `list_user_stories`), exposed via `get_taiga_client()` (`@lru_cache`). `list_user_stories` filters server-side by `assigned_users` + `status__is_closed=false`.
+- `router.py` — `POST /taiga/webhook`, the inbound endpoint Taiga calls on every project event (create/change/delete on user stories, tasks, issues). Gated by `verify_taiga_webhook_secret` at the router level, same pattern as `telegram/router.py`.
+- `security.py` — `verify_taiga_webhook_secret`: unlike Telegram's plain token comparison, Taiga signs the raw request body as HMAC-SHA1 and sends it in `X-Taiga-Webhook-Signature`; verified with `hmac.compare_digest`.
+- `models.py` — `TaigaSession` (table `taiga_session`): one row per Telegram `chat_id`, storing the Taiga access/refresh tokens **encrypted**, never in plaintext, plus the linked `taiga_user_id` (fetched via `me()` right after login) used to match inbound webhook payloads to a chat. `TaigaWebhookEvent` (table `taiga_webhook_event`): a `fingerprint` (SHA-256 of the raw payload) per processed webhook, used purely for dedup — Taiga retries webhook delivery, and this makes `process()` a no-op on a repeat. `TaigaAssignmentNotification` (table `taiga_assignment_notification`): tracks the `(chat_id, message_id)` of the Telegram message that told a user "you were assigned to X", keyed by `(taiga_object_type, taiga_object_id, taiga_user_id)` — see the webhook notification flow below for why.
 - `services/token_cipher.py` — `TokenCipher`, Fernet-based symmetric encryption for the stored tokens (reversible — unlike password hashing, the raw token must be recoverable to reuse it against Taiga's API).
-- `services/auth_service.py` — `TaigaAuthService`, the single place that: logs in and persists a session (`login`, upserts via `session.merge`, since a user may re-login), deletes a session (`logout`), and fetches data with automatic token refresh (`list_my_projects`, `list_pending_user_stories` both go through a shared `_call_with_valid_token` helper that retries once after refreshing on a `401`). Raises `NotLoggedInError` when there's no session for a `chat_id` — callers catch this to gate behavior, not by checking a boolean flag first (avoids a check-then-use race).
+- `services/auth_service.py` — `TaigaAuthService`, the single place that: logs in and persists a session (`login`, upserts via `session.merge`, since a user may re-login), deletes a session (`logout`), and fetches data with automatic token refresh (`list_my_projects`, `list_pending_user_stories`, `list_pending_user_stories_by_project`, `list_overdue_user_stories` all go through a shared `_call_with_valid_token` helper that retries once after refreshing on a `401`). Raises `NotLoggedInError` when there's no session for a `chat_id` — callers catch this to gate behavior, not by checking a boolean flag first (avoids a check-then-use race). `_to_story_summary` builds the web link to a story from `taiga_web_base_url` + the project slug + the story ref — Taiga's REST payload doesn't include a ready-made web URL for user stories.
+- `services/webhook_notification_service.py` — `TaigaWebhookNotificationService`, turns a Taiga webhook payload into Telegram messages. See the dedicated section below.
+
+### Taiga webhook → Telegram notifications (`taiga/services/webhook_notification_service.py`)
+
+`TaigaWebhookNotificationService.process()` runs once per inbound `POST /taiga/webhook` call:
+
+1. **Dedup**: hashes the full payload into a `fingerprint` and inserts a `TaigaWebhookEvent` row; a unique-constraint `IntegrityError` means this exact event was already processed (Taiga retries), so it returns immediately.
+2. **Recipients**: `_affected_taiga_user_ids(payload)` reads the *current* state (`data.assigned_to`, `data.assigned_to_extra_info`, `data.assigned_users`) — deliberately never `old_data`, so someone who just had a task unassigned from them is not a recipient of anything new (this is what fixed the "still get notified after being unassigned" bug).
+3. **Assignment-message tracking**: when the payload's `change.diff` (or, for `action == "create"`, the initial assignees) shows someone *newly* assigned (`_added_assignee_ids`), the `send_message` call's returned `message_id` is stored in `TaigaAssignmentNotification`, keyed by `(object_type, object_id, taiga_user_id)`.
+4. **Assignment-message cleanup**: when someone loses an assignment — either `_removed_assignee_ids(diff)` on a `"change"` event, or, for `action == "delete"` (an object with no `diff` to compare, since it no longer exists), everyone in `_affected_taiga_user_ids(payload)` — the previously stored message for that `(object, user)` pair is deleted via `TelegramClient.delete_message` (wrapped in `try/except httpx.HTTPStatusError`, since Telegram refuses to delete messages older than ~48h) and the tracking row removed. This is deliberate: the product decision here is "delete the original assignment notification", not "send a new unassignment notification".
+5. Only after steps 2–4 does it build and send the actual message text per recipient (`_describe_action`), covering `create`, `delete`, and `change` (due-date, status, comment, and the "you were newly assigned" line — never a "you were unassigned" line).
+
+When touching this file, keep in mind `_affected_taiga_user_ids` is reused for three different purposes (who to notify, who to track an assignment message for, and — via the same current-state read — who's still assigned after a change), so a change to what it returns has wider blast radius than it looks.
 
 ### `telegram/` module layout
 
@@ -107,6 +124,8 @@ Both dispatchers log-and-continue on a handler exception — one failing command
 
 `MenuContentService` is the single source of truth for every menu's text + `inline_keyboard`, keyed by login state (`session.get(TaigaSession, chat_id) is not None`, checked directly — there's no separate "is logged in" boolean flag). `/start` and the `menu:root` callback both render through it, so the two entry points (typing `/start` vs. tapping "⬅️ Volver") never drift out of sync. `ConversationStateService` is a small in-memory (not DB-backed) TTL map — fine for a short-lived "awaiting credentials" window; it does not need to survive a restart.
 
+"📌 Pendientes" (`menu:pendings`) is itself a submenu, not a direct listing: it only renders two buttons, "📁 Por proyecto" (`menu:pendings:by_project`) and "⏰ Atrasadas" (`menu:pendings:overdue`), each backed by its own callback (`menu_pendings_by_project.py`, `menu_pendings_overdue.py`) and its own `TaigaAuthService` method. This mirrors the `/pendings` slash command's data (`list_pending_user_stories`) but grouped/filtered differently — the three methods intentionally each make their own `list_user_stories` call rather than sharing one, consistent with the rest of `auth_service.py`.
+
 ### Adding a new command or callback
 
 - New slash command: add `commands/<name>.py` (`TelegramCommand` subclass + `get_<name>_command()`), register in `services/dispatcher.py`'s `get_dispatcher()`.
@@ -115,5 +134,5 @@ Both dispatchers log-and-continue on a handler exception — one failing command
 
 ### Security notes worth preserving
 
-- Webhook secret comparison (`security.py`) and token encryption (`taiga/services/token_cipher.py`) exist specifically to avoid two failure modes already hit during development: an unauthenticated party posting fake Telegram updates, and Taiga credentials being recoverable from a database dump. Don't replace `secrets.compare_digest`-style comparisons with `==`, and don't switch token storage from encryption to hashing (hashing is one-way; the raw token must be recoverable to reuse it against Taiga's API).
+- Webhook secret/signature comparison (`telegram/security.py`'s plain token check, `taiga/security.py`'s HMAC-SHA1 signature check) and token encryption (`taiga/services/token_cipher.py`) exist specifically to avoid failure modes already hit during development: an unauthenticated party posting fake Telegram updates or fake Taiga webhook events, and Taiga credentials being recoverable from a database dump. Don't replace `compare_digest`-style comparisons with `==`, and don't switch token storage from encryption to hashing (hashing is one-way; the raw token must be recoverable to reuse it against Taiga's API).
 - `/login`'s handler always deletes the triggering message (`finally` block) whether login succeeds or fails, because it contains the password in plaintext — preserve this when touching that command.

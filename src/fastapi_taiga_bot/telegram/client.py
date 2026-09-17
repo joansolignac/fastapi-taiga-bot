@@ -12,7 +12,7 @@ class TelegramClient:
         self._client = httpx.AsyncClient()
 
 
-    async def send_message(self, chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+    async def send_message(self, chat_id: int, text: str, reply_markup: dict | None = None) -> int:
         payload = {
             "chat_id": chat_id,
             "text": text
@@ -25,6 +25,7 @@ class TelegramClient:
             json=payload
         )
         response.raise_for_status()
+        return response.json()["result"]["message_id"]
 
     async def edit_message_text(
         self,

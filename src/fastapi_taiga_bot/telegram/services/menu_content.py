@@ -40,12 +40,43 @@ class MenuContentService:
         text = "\n".join(f"📁 {name}" for name in names) if names else "🗂️ No estás en ningún proyecto"
         return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
 
-    def build_pendings_menu(self, subjects: list[str]) -> dict:
-        text = (
-            "\n".join(f"📌 {subject}" for subject in subjects)
-            if subjects
-            else "📌 No tenés historias de usuario pendientes"
-        )
+    def build_pendings_menu(self) -> dict:
+        return {
+            "text": "📌 Pendientes. Elegí cómo verlas:",
+            "reply_markup": {
+                "inline_keyboard": [
+                    [{"text": "📁 Por proyecto", "callback_data": "menu:pendings:by_project"}],
+                    [{"text": "⏰ Atrasadas", "callback_data": "menu:pendings:overdue"}],
+                    [BACK_BUTTON],
+                ]
+            },
+        }
+
+    def build_pendings_by_project_menu(self, grouped: dict[str, list[dict]]) -> dict:
+        if not grouped:
+            text = "📌 No tenés historias de usuario pendientes"
+        else:
+            blocks = []
+            for project_name, stories in grouped.items():
+                lines = [f"📁 {project_name}"]
+                lines += [
+                    f"🔹 #{story['ref']} {story['subject']} ({story['status']})\n{story['url']}"
+                    for story in stories
+                ]
+                blocks.append("\n".join(lines))
+            text = "\n\n".join(blocks)
+        return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
+
+    def build_overdue_menu(self, stories: list[dict]) -> dict:
+        if not stories:
+            text = "⏰ No tenés historias de usuario atrasadas"
+        else:
+            lines = [
+                f"🔺 #{story['ref']} {story['subject']} (📁 {story['project_name']}) "
+                f"— {story['days_overdue']} día(s) de atraso\n{story['url']}"
+                for story in stories
+            ]
+            text = "\n\n".join(lines)
         return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
 
     def build_help_menu(self, commands: list[tuple[str, str]]) -> dict:

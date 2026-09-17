@@ -49,10 +49,10 @@ class TaigaClient:
         response.raise_for_status()
         return response.json()
 
-    async def list_user_stories(self, access_token: str, assigned_to: int) -> list[dict]:
+    async def list_user_stories(self, access_token: str, assigned_users: int) -> list[dict]:
         response = await self._client.get(
             url="/userstories",
-            params={"assigned_to": assigned_to},
+            params={"assigned_users": assigned_users, "status__is_closed": "false"},
             headers={"Authorization": f"Bearer {access_token}"}
         )
         response.raise_for_status()
