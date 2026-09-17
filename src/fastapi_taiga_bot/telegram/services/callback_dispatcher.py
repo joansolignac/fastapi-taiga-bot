@@ -5,6 +5,14 @@ from fastapi import Depends
 from fastapi_taiga_bot.telegram.callbacks.base import TelegramCallback
 from fastapi_taiga_bot.telegram.callbacks.auth_login import AuthLoginCallback, get_auth_login_callback
 from fastapi_taiga_bot.telegram.callbacks.auth_logout import AuthLogoutCallback, get_auth_logout_callback
+from fastapi_taiga_bot.telegram.callbacks.due_date_more_time import (
+    DueDateMoreTimeCallback,
+    get_due_date_more_time_callback,
+)
+from fastapi_taiga_bot.telegram.callbacks.due_date_on_time import (
+    DueDateOnTimeCallback,
+    get_due_date_on_time_callback,
+)
 from fastapi_taiga_bot.telegram.callbacks.menu_help import MenuHelpCallback, get_menu_help_callback
 from fastapi_taiga_bot.telegram.callbacks.menu_pendings import MenuPendingsCallback, get_menu_pendings_callback
 from fastapi_taiga_bot.telegram.callbacks.menu_pendings_by_project import (
@@ -58,6 +66,8 @@ def get_callback_dispatcher(
     menu_pendings_by_project: MenuPendingsByProjectCallback = Depends(get_menu_pendings_by_project_callback),
     menu_pendings_overdue: MenuPendingsOverdueCallback = Depends(get_menu_pendings_overdue_callback),
     menu_help: MenuHelpCallback = Depends(get_menu_help_callback),
+    due_date_on_time: DueDateOnTimeCallback = Depends(get_due_date_on_time_callback),
+    due_date_more_time: DueDateMoreTimeCallback = Depends(get_due_date_more_time_callback),
     ) -> CallbackDispatcher:
     dispatcher = CallbackDispatcher(telegram_client)
     dispatcher.register(menu_root)
@@ -68,4 +78,6 @@ def get_callback_dispatcher(
     dispatcher.register(menu_pendings_by_project)
     dispatcher.register(menu_pendings_overdue)
     dispatcher.register(menu_help)
+    dispatcher.register(due_date_on_time)
+    dispatcher.register(due_date_more_time)
     return dispatcher

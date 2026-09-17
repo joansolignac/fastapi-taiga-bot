@@ -4,7 +4,7 @@ BACK_BUTTON = {"text": "⬅️ Volver", "callback_data": "menu:root"}
 
 
 class MenuContentService:
-    def build_root_menu(self, is_logged_in: bool) -> dict:
+    def build_root_menu(self, is_logged_in: bool, display_name: str | None = None) -> dict:
         if not is_logged_in:
             return {
                 "text": "👋 ¡Bienvenido al bot de Taiga!\n\n🔐 Iniciá sesión para ver tus proyectos y pendientes.",
@@ -13,8 +13,14 @@ class MenuContentService:
                 },
             }
 
+        greeting = (
+            f"👋 ¡Bienvenido {display_name}! Elegí una opción:"
+            if display_name
+            else "👋 ¡Bienvenido! Elegí una opción:"
+        )
+
         return {
-            "text": "👋 ¡Bienvenido! Elegí una opción:",
+            "text": greeting,
             "reply_markup": {
                 "inline_keyboard": [
                     [{"text": "🗂️ Proyectos", "callback_data": "menu:projects"}],

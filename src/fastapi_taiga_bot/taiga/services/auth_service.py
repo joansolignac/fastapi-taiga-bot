@@ -29,19 +29,25 @@ class TaigaAuthService:
         telegram_username: str | None,
         email: str,
         password: str,
-    ) -> None:
+    ) -> str | None:
         auth_data = await self._taiga_client.login(email, password)
         user = await self._taiga_client.me(auth_data["auth_token"])
+        taiga_full_name = (
+            user.get("full_name_display") or user.get("full_name") or user.get("username")
+        )
 
         taiga_session = TaigaSession(
             chat_id=chat_id,
             telegram_username=telegram_username,
+            taiga_full_name=taiga_full_name,
             taiga_user_id=user["id"],
             access_token_encrypted=self._cipher.encrypt(auth_data["auth_token"]),
             refresh_token_encrypted=self._cipher.encrypt(auth_data["refresh"]),
         )
         await session.merge(taiga_session)
         await session.commit()
+
+        return taiga_full_name
 
     async def logout(self, session: AsyncSession, chat_id: int) -> bool:
         taiga_session = await session.get(TaigaSession, chat_id)
@@ -105,6 +111,18 @@ class TaigaAuthService:
             return overdue
 
         return await self._call_with_valid_token(session, chat_id, fetch)
+
+    async def add_comment_to_user_story(
+        self, session: AsyncSession, chat_id: int, story_id: int, comment: str
+    ) -> None:
+        async def post(access_token: str) -> None:
+            # Taiga rejects a write without the object's current version.
+            story = await self._taiga_client.get_user_story(access_token, story_id)
+            await self._taiga_client.add_comment(
+                access_token, story_id, story["version"], comment
+            )
+
+        await self._call_with_valid_token(session, chat_id, post)
 
     def _to_story_summary(self, story: dict) -> dict:
         project_info = story["project_extra_info"]

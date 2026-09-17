@@ -22,7 +22,10 @@ class MenuRootCallback(TelegramCallback):
         chat_id = message.chat.id
 
         taiga_session = await self._session.get(TaigaSession, chat_id)
-        menu = self._menu_content.build_root_menu(taiga_session is not None)
+        menu = self._menu_content.build_root_menu(
+            taiga_session is not None,
+            taiga_session.taiga_full_name if taiga_session else None,
+        )
 
         await self._client.edit_message_text(
             chat_id, message.message_id, menu["text"], menu["reply_markup"]

@@ -58,6 +58,39 @@ class TaigaClient:
         response.raise_for_status()
         return response.json()
 
+    async def list_all_open_user_stories(self, access_token: str) -> list[dict]:
+        response = await self._client.get(
+            url="/userstories",
+            params={"status__is_closed": "false"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                # Taiga paginates at 30 items by default; the due-date scan needs
+                # every open story across every project in a single pass.
+                "x-disable-pagination": "True",
+            }
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_user_story(self, access_token: str, story_id: int) -> dict:
+        response = await self._client.get(
+            url=f"/userstories/{story_id}",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def add_comment(
+        self, access_token: str, story_id: int, version: int, comment: str
+    ) -> dict:
+        response = await self._client.patch(
+            url=f"/userstories/{story_id}",
+            json={"comment": comment, "version": version},
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        response.raise_for_status()
+        return response.json()
+
     async def close(self) -> None:
         await self._client.aclose()
         

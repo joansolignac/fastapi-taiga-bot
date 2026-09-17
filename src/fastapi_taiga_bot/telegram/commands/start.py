@@ -23,7 +23,10 @@ class StartCommand(TelegramCommand):
             return
 
         taiga_session = await self._session.get(TaigaSession, chat_id)
-        menu = self._menu_content.build_root_menu(taiga_session is not None)
+        menu = self._menu_content.build_root_menu(
+            taiga_session is not None,
+            taiga_session.taiga_full_name if taiga_session else None,
+        )
 
         await self._client.send_message(chat_id, menu["text"], menu["reply_markup"])
 

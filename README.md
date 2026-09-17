@@ -1,14 +1,14 @@
 # fastapi-taiga-bot
 
-Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar sesión con su propia cuenta de Taiga (herramienta de gestión de proyectos) y consultar sus proyectos e historias de usuario pendientes directamente desde un menú de chat. Además, avisa automáticamente por Telegram cuando ocurren cambios relevantes en las tareas asignadas, a partir de los webhooks de Taiga.
+Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar sesión con su propia cuenta de Taiga (herramienta de gestión de proyectos) y consultar sus proyectos e historias de usuario pendientes directamente desde un menú de chat. Además, avisa automáticamente por Telegram cuando ocurren cambios relevantes en las tareas asignadas, a partir de los webhooks de Taiga. Usando una cuenta de administrador de Taiga configurada por variables de entorno, también avisa por adelantado cuando una historia de usuario está por vencer, y mantiene informado al administrador (si tiene sesión iniciada en el bot) de la actividad de comentarios, cambios de estado y creación de historias en todos los proyectos.
 
 ## Funcionalidades
 
 - Integración de Telegram implementada desde cero sobre `httpx` (basada en webhooks, sin frameworks de bots de terceros).
-- Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida.
+- Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida. Al iniciar sesión correctamente, el bot borra el mensaje con la contraseña y abre directamente el menú principal, saludando con el nombre completo de la cuenta de Taiga ("👋 ¡Bienvenido {nombre}!").
 - Menú con botones inline (`/start`), condicionado al estado de sesión:
   - Sin sesión iniciada → solo el botón "🔐 Iniciar sesión".
-  - Con sesión iniciada → 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.
+  - Con sesión iniciada → saludo personalizado y 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.
   - "📌 Pendientes" abre un submenú con dos vistas: "📁 Por proyecto" (agrupadas por proyecto) y "⏰ Atrasadas" (con los días de atraso), cada historia con referencia, título, estado y link directo a Taiga.
 - Comandos de texto equivalentes a cada opción del menú (`/login`, `/logout`, `/projects`, `/pendings`).
 - Renovación automática del access token de Taiga cuando expira, sin pedirle credenciales de nuevo al usuario.
@@ -18,6 +18,9 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
   - Aviso al eliminar una tarea en la que estabas asignado.
   - Al **quitar** la asignación de una tarea, el bot no solo deja de avisar de eso: **borra el mensaje original** donde te había notificado esa asignación (mismo comportamiento si te reasignan a otra persona o si la tarea se elimina directamente).
   - Los eventos repetidos (Taiga reintenta la entrega del webhook) se deduplican y se ignoran.
+  - Todas estas notificaciones incluyen el nombre del proyecto al que pertenece la historia de usuario.
+- **Avisos de vencimiento**, a partir de una cuenta de administrador de Taiga configurada por variables de entorno: un proceso programado (una vez al día) revisa todas las historias de usuario abiertas de todos los proyectos y, 2 y 1 días antes de su fecha límite, le avisa por Telegram a cada asignado que tenga sesión iniciada en el bot, con dos botones — "👍 Estoy a tiempo" / "⏳ Necesito más tiempo" — cuya respuesta queda registrada como comentario en la historia de usuario en Taiga. No se repite el aviso para la misma historia y ventana.
+- **Notificaciones al administrador**: si la cuenta de administrador de Taiga tiene sesión iniciada en el bot, recibe un aviso cuando alguien crea una historia de usuario (con su link), deja un comentario, o cambia su estado — en cualquier proyecto, incluso en historias sin asignados. Las acciones hechas por el propio administrador no generan un aviso a sí mismo.
 
 ## Requisitos
 
@@ -60,12 +63,14 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
 | `DATABASE_URL` | Cadena de conexión de Postgres con el driver async, ej. `postgresql+asyncpg://user:pass@localhost:5433/db`. |
 | `TAIGA_TOKEN_ENCRYPTION_KEY` | Clave Fernet para cifrar/descifrar los tokens de Taiga guardados. Se genera con `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
 | `TAIGA_WEBHOOK_SECRET` | Secreto configurado en Taiga (Admin → Webhooks); Taiga firma cada payload con HMAC-SHA1 usando esta clave, y el bot valida esa firma contra el header `X-Taiga-Webhook-Signature`. |
+| `TAIGA_ADMIN_USERNAME` | Usuario (o email) de la cuenta de administrador de Taiga que el backend usa como cuenta de servicio, tanto para revisar los vencimientos de todos los proyectos como para saber a quién enviarle las notificaciones de administrador. Debe tener visibilidad sobre cada proyecto que se quiera monitorear. |
+| `TAIGA_ADMIN_PASSWORD` | Contraseña de esa cuenta de administrador. |
 
 ## Comandos del bot
 
 | Comando | Descripción |
 |---|---|
-| `/start` | Muestra el menú principal (según el estado de sesión). |
+| `/start` | Muestra el menú principal (según el estado de sesión; con sesión iniciada, saluda por el nombre de la cuenta de Taiga). |
 | `/login <email> <contraseña>` | Inicia sesión en Taiga; el mensaje con la contraseña se borra apenas se procesa, haya salido bien o mal. |
 | `/logout` | Elimina la sesión de Taiga guardada. |
 | `/projects` | Lista los nombres de tus proyectos de Taiga. |

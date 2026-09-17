@@ -10,13 +10,15 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.taiga.models import TaigaAssignmentNotification, TaigaSession, TaigaWebhookEvent
+from fastapi_taiga_bot.taiga.services.admin_service import TaigaAdminService, get_taiga_admin_service
 
 SUPPORTED_ACTION_PATTERN = re.compile(r"assign|status|priority|comment|update|change")
 
 
 class TaigaWebhookNotificationService:
-    def __init__(self, telegram_client: TelegramClient):
+    def __init__(self, telegram_client: TelegramClient, admin_service: TaigaAdminService):
         self._telegram_client = telegram_client
+        self._admin_service = admin_service
 
     async def process(self, session: AsyncSession, payload: dict) -> None:
         fingerprint = hashlib.sha256(
@@ -43,6 +45,10 @@ class TaigaWebhookNotificationService:
             )
             await self._delete_assignment_messages(session, object_type, object_id, removed_ids)
 
+        # Runs before the early return below: the admin is watching the project,
+        # so a story with no assignees still concerns them.
+        await self._notify_admin(session, payload)
+
         recipient_ids = self._affected_taiga_user_ids(payload)
         if not recipient_ids or not self._is_supported(payload):
             return
@@ -63,6 +69,87 @@ class TaigaWebhookNotificationService:
                 await self._remember_assignment_message(
                     session, object_type, object_id, recipient.taiga_user_id, recipient.chat_id, message_id
                 )
+
+    async def _notify_admin(self, session: AsyncSession, payload: dict) -> None:
+        action = payload.get("action")
+
+        if payload.get("type") != "userstory" or action not in ("create", "change"):
+            return
+
+        lines = (
+            self._admin_change_lines(payload)
+            if action == "change"
+            else self._admin_create_lines(payload)
+        )
+
+        if not lines:
+            return
+
+        admin_user_id = await self._admin_service.get_admin_user_id()
+
+        if (payload.get("by") or {}).get("id") == admin_user_id:
+            return  # The admin's own action.
+
+        if admin_user_id in self._affected_taiga_user_ids(payload):
+            return  # They already get the regular assignee notification.
+
+        result = await session.exec(
+            select(TaigaSession).where(TaigaSession.taiga_user_id == admin_user_id)
+        )
+        admin_session = result.first()
+
+        if admin_session is None:
+            return  # The admin is not logged into the bot.
+
+        await self._telegram_client.send_message(
+            admin_session.chat_id, "\n\n".join(lines), self._build_reply_markup(payload)
+        )
+
+    def _admin_create_lines(self, payload: dict) -> list[str]:
+        author = self._display_name(payload.get("by"))
+        subject, project_suffix = self._admin_subject_and_project(payload, "en el")
+        line = f"✨ {author} creó la historia de usuario {subject}{project_suffix}."
+
+        permalink = (payload.get("data") or {}).get("permalink")
+        if isinstance(permalink, str) and permalink:
+            line = f"{line}\n{permalink}"
+
+        return [line]
+
+    def _admin_change_lines(self, payload: dict) -> list[str]:
+        change = payload.get("change") or {}
+        diff = change.get("diff") or {}
+        comment = change.get("comment")
+        comment = comment.strip() if isinstance(comment, str) else ""
+        status = diff.get("status") if isinstance(diff.get("status"), dict) else None
+
+        if not comment and status is None:
+            return []
+
+        author = self._display_name(payload.get("by"))
+        subject, project_suffix = self._admin_subject_and_project(payload)
+
+        lines: list[str] = []
+        if comment:
+            lines.append(
+                f"💬 {author} ha realizado el siguiente comentario dentro de la "
+                f'historia de usuario {subject}{project_suffix}: "{comment}"'
+            )
+        if status is not None:
+            before = status.get("from")
+            after = status.get("to")
+            transition = f'de "{before}" a "{after}"' if before else f'a "{after}"'
+            lines.append(
+                f"🔄 {author} cambió el estado de la historia de usuario "
+                f"{subject}{project_suffix} {transition}."
+            )
+        return lines
+
+    def _admin_subject_and_project(self, payload: dict, connector: str = "del") -> tuple[str, str]:
+        subject_raw = (payload.get("data") or {}).get("subject")
+        subject = f'"{subject_raw}"' if isinstance(subject_raw, str) else "una historia de usuario"
+        project = self._project_label(payload)
+        return subject, f' {connector} proyecto 📁 "{project}"' if project else ""
 
     async def _remember_assignment_message(
         self,
@@ -257,14 +344,11 @@ class TaigaWebhookNotificationService:
         return f"ℹ️ Se actualizó {subject}{project_parenthetical} sin cambios específicos detectados."
 
     def _project_label(self, payload: dict) -> str | None:
-        info = (payload.get("data") or {}).get("project_extra_info") or {}
-        name = info.get("name")
-        if isinstance(name, str) and name:
-            return name
-        slug = info.get("slug")
-        if isinstance(slug, str) and slug:
-            return slug
-        return None
+        # Taiga's webhook payload carries the project as a dict here; it does
+        # not send the project_extra_info the REST API returns.
+        project = (payload.get("data") or {}).get("project") or {}
+        name = project.get("name")
+        return name if isinstance(name, str) and name else None
 
     def _diff_display_value(self, entry) -> str | None:
         if isinstance(entry, dict):
@@ -286,5 +370,6 @@ class TaigaWebhookNotificationService:
 
 def get_taiga_webhook_notification_service(
     telegram_client: TelegramClient = Depends(get_telegram_client),
+    admin_service: TaigaAdminService = Depends(get_taiga_admin_service),
 ) -> TaigaWebhookNotificationService:
-    return TaigaWebhookNotificationService(telegram_client)
+    return TaigaWebhookNotificationService(telegram_client, admin_service)

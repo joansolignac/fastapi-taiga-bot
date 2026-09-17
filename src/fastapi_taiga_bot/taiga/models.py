@@ -11,6 +11,7 @@ class TaigaSession(SQLModel, table=True):
     # so they're mapped to BIGINT explicitly instead of SQLModel's default.
     chat_id: int = Field(sa_column=Column(BigInteger, primary_key=True, autoincrement=False))
     telegram_username: str | None = None
+    taiga_full_name: str | None = None
     taiga_user_id: int | None = Field(default=None, index=True)
     access_token_encrypted: str
     refresh_token_encrypted: str
@@ -43,4 +44,27 @@ class TaigaAssignmentNotification(SQLModel, table=True):
     taiga_user_id: int = Field(index=True)
     chat_id: int = Field(sa_column=Column(BigInteger, nullable=False))
     message_id: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TaigaDueDateReminder(SQLModel, table=True):
+    """Tracks the Telegram message warning a user that a user story is about to
+    be due. The unique key is what keeps a task+window from being warned twice."""
+
+    __tablename__ = "taiga_due_date_reminder"
+    __table_args__ = (
+        UniqueConstraint(
+            "taiga_object_id", "taiga_user_id", "window",
+            name="uq_taiga_due_date_reminder_object_user_window",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    taiga_object_id: int
+    taiga_user_id: int = Field(index=True)
+    chat_id: int = Field(sa_column=Column(BigInteger, nullable=False))
+    message_id: int
+    window: str
+    responded: bool = Field(default=False)
+    response: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)

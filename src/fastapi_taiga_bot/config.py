@@ -16,6 +16,9 @@ class Settings(BaseSettings):
 
     taiga_webhook_secret: str = Field(alias="TAIGA_WEBHOOK_SECRET")
 
+    taiga_admin_username: str = Field(alias="TAIGA_ADMIN_USERNAME")
+    taiga_admin_password: str = Field(alias="TAIGA_ADMIN_PASSWORD")
+
     model_config  = SettingsConfigDict(
         env_file=".env",
         populate_by_name=True
