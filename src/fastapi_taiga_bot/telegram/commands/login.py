@@ -29,7 +29,9 @@ class LoginCommand(TelegramCommand):
         self._menu_content = menu_content
         self._session = session
 
-    async def handle(self, update: TelegramUpdate, args: str) -> None:
+    async def handle(
+        self, update: TelegramUpdate, args: str, prompt_message_id: int | None = None
+    ) -> None:
         chat_id = update.message.chat.id
         parts = args.split()
 
@@ -47,6 +49,12 @@ class LoginCommand(TelegramCommand):
             )
             menu = self._menu_content.build_root_menu(True, display_name)
             mensaje = menu["text"]
+
+            if prompt_message_id is not None:
+                try:
+                    await self._client.delete_message(chat_id, prompt_message_id)
+                except httpx.HTTPStatusError:
+                    pass  # Prompt message already gone; not worth failing the login over.
         except httpx.HTTPStatusError:
             mensaje = "No se pudo iniciar sesión, revisá tus credenciales"
         except Exception:

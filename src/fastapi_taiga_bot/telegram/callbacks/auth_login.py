@@ -27,7 +27,7 @@ class AuthLoginCallback(TelegramCallback):
         message = update.callback_query.message
         chat_id = message.chat.id
 
-        self._conversation_state.mark_awaiting_login(chat_id)
+        self._conversation_state.mark_awaiting_login(chat_id, message.message_id)
         menu = self._menu_content.build_login_prompt()
 
         await self._client.edit_message_text(

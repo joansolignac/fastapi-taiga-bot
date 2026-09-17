@@ -5,7 +5,7 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
 ## Funcionalidades
 
 - Integración de Telegram implementada desde cero sobre `httpx` (basada en webhooks, sin frameworks de bots de terceros).
-- Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida. Al iniciar sesión correctamente, el bot borra el mensaje con la contraseña y abre directamente el menú principal, saludando con el nombre completo de la cuenta de Taiga ("👋 ¡Bienvenido {nombre}!").
+- Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida. Al iniciar sesión correctamente, el bot borra el mensaje con la contraseña (y, si el login se inició tocando el botón "🔐 Iniciar sesión", también el mensaje del prompt anterior) y abre directamente el menú principal, saludando con el nombre completo de la cuenta de Taiga ("👋 ¡Bienvenido {nombre}!").
 - Menú con botones inline (`/start`), condicionado al estado de sesión:
   - Sin sesión iniciada → solo el botón "🔐 Iniciar sesión".
   - Con sesión iniciada → saludo personalizado y 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.

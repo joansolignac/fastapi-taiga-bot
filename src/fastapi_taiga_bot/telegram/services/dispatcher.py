@@ -32,16 +32,14 @@ class CommandDispatcher:
         return list(self._commands.values())
 
     async def dispatch(self, update: TelegramUpdate) -> None:
-        if (
-            update.message is not None
-            and not update.is_command
-            and self._conversation_state.consume_awaiting_login(update.message.chat.id)
-        ):
-            try:
-                await self._login_command.handle(update, update.message.text or "")
-            except Exception:
-                logger.exception("Failed command: login")
-            return
+        if update.message is not None and not update.is_command:
+            prompt_message_id = self._conversation_state.consume_awaiting_login(update.message.chat.id)
+            if prompt_message_id is not None:
+                try:
+                    await self._login_command.handle(update, update.message.text or "", prompt_message_id)
+                except Exception:
+                    logger.exception("Failed command: login")
+                return
 
         parsed = parser_command(update)
 
