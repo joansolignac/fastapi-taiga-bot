@@ -76,6 +76,19 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
 | `/projects` | Lista los nombres de tus proyectos de Taiga. |
 | `/pendings` | Lista tus historias de usuario abiertas (no cerradas). |
 
+## Deploy (Docker / Coolify)
+
+El `Dockerfile` en la raíz del proyecto construye una imagen de producción con [`uv`](https://docs.astral.sh/uv/) (multi-stage: compila el entorno virtual en una etapa y copia solo el resultado a la imagen final, sin `uv` ni herramientas de build). Al arrancar el contenedor, `docker-entrypoint.sh` aplica las migraciones pendientes (`alembic upgrade head`) y recién después levanta el servidor (`fastapi run`, sin auto-reload) en `0.0.0.0:${PORT:-8000}`.
+
+Para desplegarlo en [Coolify](https://coolify.io/):
+
+1. Crear un nuevo recurso apuntando a este repositorio, con **build pack = Dockerfile** (no usar `compose.yaml`: ese archivo solo levanta Postgres para desarrollo local).
+2. Configurar en Coolify todas las variables de entorno listadas en la sección anterior. `DATABASE_URL` debe apuntar a una instancia de Postgres accesible desde el contenedor (una base gestionada por Coolify, o cualquier Postgres externo) — no a `localhost`.
+3. Exponer el puerto `8000` del contenedor (Coolify detecta el `EXPOSE 8000` del `Dockerfile`).
+4. Una vez desplegado, apuntar los webhooks de Telegram y Taiga al dominio público que asigne Coolify (`https://<tu-dominio>/telegram/webhook` y `https://<tu-dominio>/taiga/webhook`), igual que se describe más arriba para el túnel local.
+
+No hace falta correr `alembic upgrade head` manualmente contra la base de producción: el propio contenedor lo hace en cada arranque, antes de aceptar tráfico. La imagen incluye un `HEALTHCHECK` que consulta `/docs`.
+
 ## Desarrollo
 
 Ver [CLAUDE.md](CLAUDE.md) (en inglés) para la referencia completa de arquitectura: organización de módulos, convenciones de inyección de dependencias, flujo de migraciones/base de datos, el diseño del servicio de notificaciones vía webhook de Taiga, y cómo probar los webhooks en local.

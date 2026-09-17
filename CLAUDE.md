@@ -44,6 +44,10 @@ There are no tests, linter, or formatter configured yet.
 
 **`fastapi dev`'s auto-reload can silently drop in-flight requests.** If a file changes while a slow request (e.g. `/login`, which calls the Taiga API before writing to the database) is being processed, the reloader kills and restarts the server process mid-request — no exception, no response, and no database write. When debugging a request that seems to vanish with no error, restart with `fastapi run` (no reload) to rule this out before suspecting application code.
 
+### Docker
+
+`Dockerfile` is a multi-stage build: the builder stage uses `ghcr.io/astral-sh/uv` to install the exact Python version from `.python-version` (via `uv python install`, not the base image's own Python — keeps the build independent of whether a given Debian image has caught up to a brand-new CPython release) and `uv sync --locked` the dependencies; the runtime stage is plain `debian:bookworm-slim` with no `uv` and no build toolchain, just the managed Python and the built `.venv` copied over, running as a non-root user. `docker-entrypoint.sh` runs `alembic upgrade head` before starting the server — unlike local dev (where migrations are a separate manual step, see above), the container always migrates on every boot, so a deploy is never left half-migrated. See the README's "Deploy (Docker / Coolify)" section for the operational side of this.
+
 ### Local webhook testing
 
 Telegram requires an HTTPS URL for webhooks, so local testing needs a tunnel (e.g. ngrok) exposing the FastAPI server, then registering it with Telegram:
