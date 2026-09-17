@@ -13,7 +13,7 @@ from fastapi_taiga_bot.taiga.services.token_cipher import get_token_cipher
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 
 # (label stored for dedup, days before the due date that triggers the warning)
-NOTICE_WINDOWS = (("2d", 2), ("1d", 1))
+NOTICE_WINDOWS = (("2d", 2), ("1d", 1), ("0d", 0))
 
 RESPONSE_COMMENTS = {
     "on_time": "Estoy a tiempo con esta historia de usuario.",
@@ -115,7 +115,7 @@ class TaigaDueDateReminderService:
             return  # Already warned for this story and window.
 
         message_id = await self._telegram_client.send_message(
-            taiga_session.chat_id, self._build_text(story), self._build_reply_markup()
+            taiga_session.chat_id, self._build_text(story, window), self._build_reply_markup()
         )
 
         session.add(
@@ -133,14 +133,15 @@ class TaigaDueDateReminderService:
         ids = [*(story.get("assigned_users") or []), story.get("assigned_to")]
         return {i for i in ids if isinstance(i, int)}
 
-    def _build_text(self, story: dict) -> str:
+    def _build_text(self, story: dict, window: str) -> str:
         project_info = story.get("project_extra_info") or {}
         web_base_url = get_settings().taiga_web_base_url.rstrip("/")
         url = f"{web_base_url}/project/{project_info.get('slug')}/us/{story['ref']}"
+        when = "vence HOY" if window == "0d" else f"vence el {story['due_date']}"
 
         return (
             f"⏰ La historia de usuario #{story['ref']} \"{story['subject']}\" "
-            f"del proyecto 📁 \"{project_info.get('name')}\" vence el {story['due_date']}.\n\n"
+            f"del proyecto 📁 \"{project_info.get('name')}\" {when}.\n\n"
             f"{url}\n\n"
             "¿Cómo vas con esta tarea?"
         )
