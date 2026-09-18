@@ -6,6 +6,7 @@ from fastapi_taiga_bot.telegram.commands.base import TelegramCommand
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
 from fastapi_taiga_bot.telegram.services.menu_content import MenuContentService, get_menu_content
+from fastapi_taiga_bot.telegram.services.message_log import log_message
 from fastapi_taiga_bot.taiga.models import TaigaSession
 
 class StartCommand(TelegramCommand):
@@ -28,7 +29,8 @@ class StartCommand(TelegramCommand):
             taiga_session.taiga_full_name if taiga_session else None,
         )
 
-        await self._client.send_message(chat_id, menu["text"], menu["reply_markup"])
+        message_id = await self._client.send_message(chat_id, menu["text"], menu["reply_markup"])
+        await log_message(self._session, chat_id, message_id)
 
     def get_description(self) -> str:
         return "Inicia la conversación con el bot"

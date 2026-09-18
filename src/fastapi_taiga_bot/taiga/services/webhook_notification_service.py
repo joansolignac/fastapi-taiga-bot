@@ -9,6 +9,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
+from fastapi_taiga_bot.telegram.services.message_log import log_message
 from fastapi_taiga_bot.taiga.models import TaigaAssignmentNotification, TaigaSession, TaigaWebhookEvent
 from fastapi_taiga_bot.taiga.services.admin_service import TaigaAdminService, get_taiga_admin_service
 
@@ -64,6 +65,7 @@ class TaigaWebhookNotificationService:
         for recipient in recipients:
             text = self._describe_action(payload, recipient.taiga_user_id, newly_assigned_ids)
             message_id = await self._telegram_client.send_message(recipient.chat_id, text, reply_markup)
+            await log_message(session, recipient.chat_id, message_id)
 
             if object_id is not None and recipient.taiga_user_id in newly_assigned_ids:
                 await self._remember_assignment_message(
@@ -101,9 +103,10 @@ class TaigaWebhookNotificationService:
         if admin_session is None:
             return  # The admin is not logged into the bot.
 
-        await self._telegram_client.send_message(
+        message_id = await self._telegram_client.send_message(
             admin_session.chat_id, "\n\n".join(lines), self._build_reply_markup(payload)
         )
+        await log_message(session, admin_session.chat_id, message_id)
 
     def _admin_create_lines(self, payload: dict) -> list[str]:
         author = self._display_name(payload.get("by"))

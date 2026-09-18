@@ -6,6 +6,7 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
 
 - Integración de Telegram implementada desde cero sobre `httpx` (basada en webhooks, sin frameworks de bots de terceros).
 - Login por usuario contra Taiga (`/login`), con los tokens cifrados en Postgres — no se usa una cuenta técnica compartida. Al iniciar sesión correctamente, el bot borra el mensaje con la contraseña (y, si el login se inició tocando el botón "🔐 Iniciar sesión", también el mensaje del prompt anterior) y abre directamente el menú principal, saludando con el nombre completo de la cuenta de Taiga ("👋 ¡Bienvenido {nombre}!").
+- Al cerrar sesión (`/logout` o el botón "🔓 Cerrar sesión"), el bot borra **todos los mensajes del chat que haya registrado** (los propios, los del usuario, y cualquier notificación de asignación/vencimiento/admin previa) y abre de nuevo el menú, dejando la conversación limpia. Solo puede borrar lo que registró desde que existe esta función — no hay forma de recuperar mensajes anteriores.
 - Menú con botones inline (`/start`), condicionado al estado de sesión:
   - Sin sesión iniciada → solo el botón "🔐 Iniciar sesión".
   - Con sesión iniciada → saludo personalizado y 🗂️ Proyectos, 📌 Pendientes, ❓ Ayuda, 🔓 Cerrar sesión.
@@ -72,7 +73,7 @@ Bot de Telegram, construido sobre FastAPI, que permite a cada usuario iniciar se
 |---|---|
 | `/start` | Muestra el menú principal (según el estado de sesión; con sesión iniciada, saluda por el nombre de la cuenta de Taiga). |
 | `/login <email> <contraseña>` | Inicia sesión en Taiga; el mensaje con la contraseña se borra apenas se procesa, haya salido bien o mal. |
-| `/logout` | Elimina la sesión de Taiga guardada. |
+| `/logout` | Elimina la sesión de Taiga guardada, borra todos los mensajes registrados del chat y vuelve a abrir el menú. |
 | `/projects` | Lista los nombres de tus proyectos de Taiga. |
 | `/pendings` | Lista tus historias de usuario abiertas (no cerradas). |
 

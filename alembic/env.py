@@ -11,6 +11,7 @@ from sqlmodel import SQLModel
 
 from fastapi_taiga_bot.config import get_settings
 from fastapi_taiga_bot.taiga.models import TaigaSession  # noqa: F401
+from fastapi_taiga_bot.telegram.models import TelegramMessageLog  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

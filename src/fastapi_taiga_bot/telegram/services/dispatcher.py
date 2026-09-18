@@ -1,6 +1,9 @@
 import logging
 
 from fastapi import Depends
+from sqlmodel.ext.asyncio.session import AsyncSession
+
+from fastapi_taiga_bot.db.engine import get_session
 from fastapi_taiga_bot.telegram.commands.base import TelegramCommand
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
 from fastapi_taiga_bot.telegram.services.command_parser import parser_command
@@ -13,15 +16,22 @@ from fastapi_taiga_bot.telegram.services.conversation_state import (
     ConversationStateService,
     get_conversation_state,
 )
+from fastapi_taiga_bot.telegram.services.message_log import log_message
 
 logger = logging.getLogger()
 
 
 class CommandDispatcher:
-    def __init__(self, login_command: LoginCommand, conversation_state: ConversationStateService):
+    def __init__(
+        self,
+        login_command: LoginCommand,
+        conversation_state: ConversationStateService,
+        session: AsyncSession,
+    ):
         self._commands: dict[str, TelegramCommand] = {}
         self._login_command = login_command
         self._conversation_state = conversation_state
+        self._session = session
 
     def register(self, command: TelegramCommand) -> None:
         if command.name in self._commands:
@@ -32,6 +42,11 @@ class CommandDispatcher:
         return list(self._commands.values())
 
     async def dispatch(self, update: TelegramUpdate) -> None:
+        if update.message is not None:
+            # Logged here, at the single choke point for every inbound message,
+            # so a later logout can delete it too — not just what the bot sends.
+            await log_message(self._session, update.message.chat.id, update.message.message_id)
+
         if update.message is not None and not update.is_command:
             prompt_message_id = self._conversation_state.consume_awaiting_login(update.message.chat.id)
             if prompt_message_id is not None:
@@ -66,8 +81,9 @@ def get_dispatcher(
     projects_command: ProjectsCommand = Depends(get_projects_command),
     pendings_command: PendingsCommand = Depends(get_pendings_command),
     conversation_state: ConversationStateService = Depends(get_conversation_state),
+    session: AsyncSession = Depends(get_session),
     ) -> CommandDispatcher:
-    dispatcher = CommandDispatcher(login_command, conversation_state)
+    dispatcher = CommandDispatcher(login_command, conversation_state, session)
     dispatcher.register(start_command)
     dispatcher.register(login_command)
     dispatcher.register(logout_command)

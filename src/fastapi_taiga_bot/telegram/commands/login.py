@@ -9,6 +9,7 @@ from fastapi_taiga_bot.telegram.commands.base import TelegramCommand
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
 from fastapi_taiga_bot.telegram.services.menu_content import MenuContentService, get_menu_content
+from fastapi_taiga_bot.telegram.services.message_log import log_message
 from fastapi_taiga_bot.taiga.services.auth_service import TaigaAuthService, get_taiga_auth_service
 
 logger = logging.getLogger()
@@ -36,7 +37,8 @@ class LoginCommand(TelegramCommand):
         parts = args.split()
 
         if len(parts) != 2:
-            await self._client.send_message(chat_id, "Uso: /login correo contraseña")
+            message_id = await self._client.send_message(chat_id, "Uso: /login correo contraseña")
+            await log_message(self._session, chat_id, message_id)
             return
 
         email, password = parts
@@ -68,9 +70,10 @@ class LoginCommand(TelegramCommand):
             # regardless of whether login succeeded, to avoid leaving it visible in the chat.
             await self._client.delete_message(chat_id, update.message.message_id)
 
-        await self._client.send_message(
+        message_id = await self._client.send_message(
             chat_id, mensaje, menu["reply_markup"] if menu else None
         )
+        await log_message(self._session, chat_id, message_id)
 
     def get_description(self) -> str:
         return "Inicia sesión en Taiga: /login correo contraseña"

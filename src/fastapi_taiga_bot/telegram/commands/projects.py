@@ -5,6 +5,7 @@ from fastapi_taiga_bot.db.engine import get_session
 from fastapi_taiga_bot.telegram.commands.base import TelegramCommand
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
+from fastapi_taiga_bot.telegram.services.message_log import log_message
 from fastapi_taiga_bot.taiga.services.auth_service import (
     NotLoggedInError,
     TaigaAuthService,
@@ -26,14 +27,19 @@ class ProjectsCommand(TelegramCommand):
         try:
             names = await self._auth_service.list_my_projects(self._session, chat_id)
         except NotLoggedInError:
-            await self._client.send_message(chat_id, "Primero iniciá sesión con /login correo contraseña")
+            message_id = await self._client.send_message(
+                chat_id, "Primero iniciá sesión con /login correo contraseña"
+            )
+            await log_message(self._session, chat_id, message_id)
             return
 
         if not names:
-            await self._client.send_message(chat_id, "No estás en ningún proyecto")
+            message_id = await self._client.send_message(chat_id, "No estás en ningún proyecto")
+            await log_message(self._session, chat_id, message_id)
             return
 
-        await self._client.send_message(chat_id, "\n".join(names))
+        message_id = await self._client.send_message(chat_id, "\n".join(names))
+        await log_message(self._session, chat_id, message_id)
 
     def get_description(self) -> str:
         return "Lista los nombres de tus proyectos en Taiga"
