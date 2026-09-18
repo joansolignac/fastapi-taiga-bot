@@ -47,6 +47,28 @@ class TaigaAssignmentNotification(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class TaigaStatusNotification(SQLModel, table=True):
+    """Tracks the Telegram message that told a recipient (assignee, watcher,
+    or admin) about a Taiga object's current status, so a later status
+    change deletes the outdated message instead of piling up a new one."""
+
+    __tablename__ = "taiga_status_notification"
+    __table_args__ = (
+        UniqueConstraint(
+            "taiga_object_type", "taiga_object_id", "taiga_user_id",
+            name="uq_taiga_status_notification_object_user",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+    taiga_object_type: str
+    taiga_object_id: int
+    taiga_user_id: int = Field(index=True)
+    chat_id: int = Field(sa_column=Column(BigInteger, nullable=False))
+    message_id: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TaigaDueDateReminder(SQLModel, table=True):
     """Tracks the Telegram message warning a user that a user story is about to
     be due. The unique key is what keeps a task+window from being warned twice."""

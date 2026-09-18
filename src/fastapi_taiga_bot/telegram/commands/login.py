@@ -8,6 +8,7 @@ from fastapi_taiga_bot.db.engine import get_session
 from fastapi_taiga_bot.telegram.commands.base import TelegramCommand
 from fastapi_taiga_bot.telegram.client import TelegramClient, get_telegram_client
 from fastapi_taiga_bot.telegram.schemas.update import TelegramUpdate
+from fastapi_taiga_bot.telegram.services.menu_anchor import upsert_menu_anchor
 from fastapi_taiga_bot.telegram.services.menu_content import MenuContentService, get_menu_content
 from fastapi_taiga_bot.telegram.services.message_log import log_message
 from fastapi_taiga_bot.taiga.services.auth_service import TaigaAuthService, get_taiga_auth_service
@@ -74,6 +75,8 @@ class LoginCommand(TelegramCommand):
             chat_id, mensaje, menu["reply_markup"] if menu else None
         )
         await log_message(self._session, chat_id, message_id)
+        if menu is not None:
+            await upsert_menu_anchor(self._session, chat_id, message_id)
 
     def get_description(self) -> str:
         return "Inicia sesión en Taiga: /login correo contraseña"

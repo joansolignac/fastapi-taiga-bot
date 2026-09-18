@@ -77,17 +77,20 @@ class TaigaAuthService:
 
     async def list_pending_user_stories_by_project(
         self, session: AsyncSession, chat_id: int
-    ) -> dict[str, list[dict]]:
-        async def fetch(access_token: str) -> dict[str, list[dict]]:
+    ) -> dict[str, dict[str, list[dict]]]:
+        async def fetch(access_token: str) -> dict[str, dict[str, list[dict]]]:
             user = await self._taiga_client.me(access_token)
             user_stories = await self._taiga_client.list_user_stories(access_token, user["id"])
 
-            grouped: dict[str, list[dict]] = {}
+            grouped: dict[str, dict[str, list[dict]]] = {}
             for story in user_stories:
                 if story["is_closed"]:
                     continue
                 project_name = story["project_extra_info"]["name"]
-                grouped.setdefault(project_name, []).append(self._to_story_summary(story))
+                status_name = story["status_extra_info"]["name"]
+                grouped.setdefault(project_name, {}).setdefault(status_name, []).append(
+                    self._to_story_summary(story)
+                )
             return grouped
 
         return await self._call_with_valid_token(session, chat_id, fetch)
@@ -102,12 +105,9 @@ class TaigaAuthService:
             for story in user_stories:
                 if story["is_closed"] or not story["due_date"]:
                     continue
-                due_date = date.fromisoformat(story["due_date"])
-                if due_date >= today:
+                if date.fromisoformat(story["due_date"]) >= today:
                     continue
-                summary = self._to_story_summary(story)
-                summary["days_overdue"] = (today - due_date).days
-                overdue.append(summary)
+                overdue.append(self._to_story_summary(story))
             return overdue
 
         return await self._call_with_valid_token(session, chat_id, fetch)
@@ -128,11 +128,13 @@ class TaigaAuthService:
         project_info = story["project_extra_info"]
         web_base_url = get_settings().taiga_web_base_url.rstrip("/")
         return {
+            "id": story["id"],
             "ref": story["ref"],
             "subject": story["subject"],
             "status": story["status_extra_info"]["name"],
             "project_name": project_info["name"],
             "url": f"{web_base_url}/project/{project_info['slug']}/us/{story['ref']}",
+            "due_date": story["due_date"],
         }
 
     async def _call_with_valid_token(

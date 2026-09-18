@@ -16,3 +16,11 @@ wheels/
 
 # IDE
 .idea/
+
+# Local-only notes (not shared with the team, may contain secrets)
+CLAUDE.LOCAL.MD
+
+# Local server run artifacts
+.server.pid
+.server_stdout.log
+.server_stderr.log

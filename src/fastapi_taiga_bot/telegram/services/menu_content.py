@@ -58,17 +58,19 @@ class MenuContentService:
             },
         }
 
-    def build_pendings_by_project_menu(self, grouped: dict[str, list[dict]]) -> dict:
+    def build_pendings_by_project_menu(self, grouped: dict[str, dict[str, list[dict]]]) -> dict:
         if not grouped:
             text = "📌 No tenés historias de usuario pendientes"
         else:
             blocks = []
-            for project_name, stories in grouped.items():
+            for project_name, by_status in grouped.items():
                 lines = [f"📁 {project_name}"]
-                lines += [
-                    f"🔹 #{story['ref']} {story['subject']} ({story['status']})\n{story['url']}"
-                    for story in stories
-                ]
+                for status_name, stories in by_status.items():
+                    lines.append(f"  🏷️ {status_name}")
+                    lines += [
+                        f"    🔹 #{story['ref']} {story['subject']}\n    {story['url']}"
+                        for story in stories
+                    ]
                 blocks.append("\n".join(lines))
             text = "\n\n".join(blocks)
         return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
@@ -76,13 +78,26 @@ class MenuContentService:
     def build_overdue_menu(self, stories: list[dict]) -> dict:
         if not stories:
             text = "⏰ No tenés historias de usuario atrasadas"
-        else:
-            lines = [
-                f"🔺 #{story['ref']} {story['subject']} (📁 {story['project_name']}) "
-                f"— {story['days_overdue']} día(s) de atraso\n{story['url']}"
-                for story in stories
+            return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
+
+        pending = [story for story in stories if not story.get("responded")]
+        responded = [story for story in stories if story.get("responded")]
+
+        lines = [f"⏰ Tenés {len(stories)} historia(s) de usuario atrasada(s)."]
+
+        if pending:
+            lines.append(f"\n📨 Se enviaron {len(pending)} recordatorio(s) abajo con opciones para responder.")
+
+        if responded:
+            response_icon = {"on_time": "👍", "needs_more_time": "⏳"}
+            lines.append("\n✅ Ya respondiste para:")
+            lines += [
+                f"{response_icon.get(story.get('response'), '✅')} #{story['ref']} {story['subject']} "
+                f"(📁 {story['project_name']})"
+                for story in responded
             ]
-            text = "\n\n".join(lines)
+
+        text = "\n".join(lines)
         return {"text": text, "reply_markup": {"inline_keyboard": [[BACK_BUTTON]]}}
 
     def build_help_menu(self, commands: list[tuple[str, str]]) -> dict:

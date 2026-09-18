@@ -16,3 +16,15 @@ class TelegramMessageLog(SQLModel, table=True):
     chat_id: int = Field(sa_column=Column(BigInteger, nullable=False, index=True))
     message_id: int
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TelegramMenuAnchor(SQLModel, table=True):
+    """Tracks the most recent root-menu message sent to a chat, so pushed
+    notifications (webhook events, due-date reminders) can re-send it at
+    the bottom of the chat instead of leaving it buried above them."""
+
+    __tablename__ = "telegram_menu_anchor"
+
+    chat_id: int = Field(sa_column=Column(BigInteger, primary_key=True, autoincrement=False))
+    message_id: int
+    created_at: datetime = Field(default_factory=datetime.utcnow)
